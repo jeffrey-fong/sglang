@@ -710,7 +710,7 @@ def v1_chat_generate_request(all_requests, tokenizer_manager):
             # Apply chat template and its stop strings.
             if chat_template_name is None:
                 prompt_ids = tokenizer_manager.tokenizer.apply_chat_template(
-                    request.messages, tokenize=True, add_generation_prompt=True
+                    request.messages, request.tools, tokenize=True, add_generation_prompt=True
                 )
                 stop = request.stop
                 image_data = None

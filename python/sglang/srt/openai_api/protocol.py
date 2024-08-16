@@ -258,6 +258,7 @@ class ChatCompletionRequest(BaseModel):
     stream_options: Optional[StreamOptions] = None
     temperature: Optional[float] = 0.7
     top_p: Optional[float] = 1.0
+    tools: Optional[List[Dict]] = None
     user: Optional[str] = None
 
     # Extra parameters for SRT backend only and will be ignored by OpenAI models.

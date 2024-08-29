@@ -22,6 +22,7 @@ class SglSamplingParams:
     temperature: float = 1.0
     top_p: float = 1.0
     top_k: int = -1  # -1 means disable
+    min_p: float = 0.0
     frequency_penalty: float = 0.0
     presence_penalty: float = 0.0
     ignore_eos: bool = False
@@ -29,6 +30,7 @@ class SglSamplingParams:
     logprob_start_len: Optional[int] = (None,)
     top_logprobs_num: Optional[int] = (None,)
     return_text_in_logprobs: Optional[bool] = (None,)
+    json_schema: Optional[str] = None
 
     # for constrained generation, not included in to_xxx_kwargs
     dtype: Optional[str] = None
@@ -42,6 +44,7 @@ class SglSamplingParams:
             self.temperature,
             self.top_p,
             self.top_k,
+            self.min_p,
             self.frequency_penalty,
             self.presence_penalty,
             self.ignore_eos,
@@ -49,6 +52,7 @@ class SglSamplingParams:
             self.logprob_start_len,
             self.top_logprobs_num,
             self.return_text_in_logprobs,
+            self.json_schema,
         )
 
     def to_openai_kwargs(self):
@@ -114,10 +118,12 @@ class SglSamplingParams:
             "temperature": self.temperature,
             "top_p": self.top_p,
             "top_k": self.top_k,
+            "min_p": self.min_p,
             "frequency_penalty": self.frequency_penalty,
             "presence_penalty": self.presence_penalty,
             "ignore_eos": self.ignore_eos,
             "regex": self.regex,
+            "json_schema": self.json_schema,
         }
 
 
@@ -149,6 +155,7 @@ class SglFunction:
         temperature: float = 1.0,
         top_p: float = 1.0,
         top_k: int = -1,
+        min_p: float = 0.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
         ignore_eos: bool = False,
@@ -169,6 +176,7 @@ class SglFunction:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            min_p=min_p,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
             ignore_eos=ignore_eos,
@@ -190,6 +198,7 @@ class SglFunction:
         temperature: float = 1.0,
         top_p: float = 1.0,
         top_k: int = -1,
+        min_p: float = 0.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
         ignore_eos: bool = False,
@@ -228,6 +237,7 @@ class SglFunction:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            min_p=min_p,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
             ignore_eos=ignore_eos,
@@ -408,6 +418,7 @@ class SglGen(SglExpr):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
+        min_p: Optional[float] = None,
         frequency_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
         ignore_eos: Optional[bool] = None,
@@ -417,6 +428,7 @@ class SglGen(SglExpr):
         return_text_in_logprobs: Optional[bool] = None,
         dtype: Optional[type] = None,
         regex: Optional[str] = None,
+        json_schema: Optional[str] = None,
     ):
         """Call the model to generate. See the meaning of the arguments in docs/en/sampling_params.md"""
         super().__init__()
@@ -428,6 +440,7 @@ class SglGen(SglExpr):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            min_p=min_p,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
             ignore_eos=ignore_eos,
@@ -437,6 +450,7 @@ class SglGen(SglExpr):
             return_text_in_logprobs=return_text_in_logprobs,
             dtype=dtype,
             regex=regex,
+            json_schema=json_schema,
         )
 
     def __repr__(self):

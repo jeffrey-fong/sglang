@@ -66,6 +66,7 @@ def gen(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     top_k: Optional[int] = None,
+    min_p: Optional[float] = None,
     frequency_penalty: Optional[float] = None,
     presence_penalty: Optional[float] = None,
     ignore_eos: Optional[bool] = None,
@@ -77,6 +78,7 @@ def gen(
     choices: Optional[List[str]] = None,
     choices_method: Optional[ChoicesSamplingMethod] = None,
     regex: Optional[str] = None,
+    json_schema: Optional[str] = None,
 ):
     """Call the model to generate. See the meaning of the arguments in docs/en/sampling_params.md"""
 
@@ -103,6 +105,7 @@ def gen(
         temperature,
         top_p,
         top_k,
+        min_p,
         frequency_penalty,
         presence_penalty,
         ignore_eos,
@@ -112,6 +115,7 @@ def gen(
         return_text_in_logprobs,
         dtype,
         regex,
+        json_schema,
     )
 
 
@@ -123,6 +127,7 @@ def gen_int(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     top_k: Optional[int] = None,
+    min_p: Optional[float] = None,
     frequency_penalty: Optional[float] = None,
     presence_penalty: Optional[float] = None,
     ignore_eos: Optional[bool] = None,
@@ -139,6 +144,7 @@ def gen_int(
         temperature,
         top_p,
         top_k,
+        min_p,
         frequency_penalty,
         presence_penalty,
         ignore_eos,
@@ -159,6 +165,7 @@ def gen_string(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     top_k: Optional[int] = None,
+    min_p: Optional[float] = None,
     frequency_penalty: Optional[float] = None,
     presence_penalty: Optional[float] = None,
     ignore_eos: Optional[bool] = None,
@@ -175,6 +182,7 @@ def gen_string(
         temperature,
         top_p,
         top_k,
+        min_p,
         frequency_penalty,
         presence_penalty,
         ignore_eos,

@@ -663,6 +663,7 @@ class StreamExecutor:
             "temperature",
             "top_p",
             "top_k",
+            "min_p",
             "frequency_penalty",
             "presence_penalty",
             "ignore_eos",
@@ -672,6 +673,7 @@ class StreamExecutor:
             "return_text_in_logprobs",
             "dtype",
             "regex",
+            "json_schema",
         ]:
             value = getattr(sampling_params, item, None)
             if value is not None:

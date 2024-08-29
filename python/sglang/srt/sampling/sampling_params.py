@@ -30,6 +30,7 @@ class SamplingParams:
         temperature: float = 1.0,
         top_p: float = 1.0,
         top_k: int = -1,
+        min_p: float = 0.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
         repetition_penalty: float = 1.0,
@@ -38,10 +39,12 @@ class SamplingParams:
         spaces_between_special_tokens: bool = True,
         regex: Optional[str] = None,
         n: int = 1,
+        json_schema: Optional[str] = None,
     ) -> None:
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
+        self.min_p = min_p
         self.frequency_penalty = frequency_penalty
         self.presence_penalty = presence_penalty
         self.repetition_penalty = repetition_penalty
@@ -54,6 +57,7 @@ class SamplingParams:
         self.spaces_between_special_tokens = spaces_between_special_tokens
         self.regex = regex
         self.n = n
+        self.json_schema = json_schema
 
         # Process some special cases
         if self.temperature < _SAMPLING_EPS:
@@ -69,6 +73,8 @@ class SamplingParams:
             )
         if not 0.0 < self.top_p <= 1.0:
             raise ValueError(f"top_p must be in (0, 1], got {self.top_p}.")
+        if not 0.0 <= self.min_p <= 1.0:
+            raise ValueError(f"min_p must be in [0, 1], got {self.min_p}.")
         if self.top_k < -1 or self.top_k == 0:
             raise ValueError(
                 f"top_k must be -1 (disable), or at least 1, " f"got {self.top_k}."
@@ -102,6 +108,8 @@ class SamplingParams:
                     f"min_new_tokens must be in (0, max_new_tokens({self.max_new_tokens})], got "
                     f"{self.min_new_tokens}."
                 )
+        if self.regex is not None and self.json_schema is not None:
+            raise ValueError("regex and json_schema cannot be both set.")
 
     def normalize(self, tokenizer):
         # Process stop strings
@@ -123,3 +131,17 @@ class SamplingParams:
                 else:
                     stop_str_max_len = max(stop_str_max_len, len(stop_str))
             self.stop_str_max_len = stop_str_max_len
+
+    def to_srt_kwargs(self):
+        return {
+            "max_new_tokens": self.max_new_tokens,
+            "stop": self.stop_strs,
+            "stop_token_ids": list(self.stop_token_ids),
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "ignore_eos": self.ignore_eos,
+            "regex": self.regex,
+        }

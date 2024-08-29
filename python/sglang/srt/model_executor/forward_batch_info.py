@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Copyright 2023-2024 SGLang Team
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +18,7 @@ limitations under the License.
 """ModelRunner runs the forward passes of the models."""
 from dataclasses import dataclass
 from enum import IntEnum, auto
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 import torch
@@ -26,6 +28,7 @@ from sglang.srt.mem_cache.memory_pool import BaseTokenToKVPool, ReqToTokenPool
 
 if TYPE_CHECKING:
     from sglang.srt.model_executor.model_runner import ModelRunner
+    from sglang.srt.sampling.sampling_batch_info import SamplingBatchInfo
 
 
 class ForwardMode(IntEnum):
@@ -42,6 +45,7 @@ class InputMetadata:
     """Store all inforamtion of a forward pass."""
 
     forward_mode: ForwardMode
+    sampling_info: SamplingBatchInfo
     batch_size: int
     req_pool_indices: torch.Tensor
     seq_lens: torch.Tensor
@@ -58,17 +62,20 @@ class InputMetadata:
 
     # For extend
     extend_seq_lens: torch.Tensor = None
+    extend_prefix_lens: torch.Tensor = None
     extend_start_loc: torch.Tensor = None
     extend_no_prefix: bool = None
 
-    # Output options
+    # For logprob
     return_logprob: bool = False
     top_logprobs_nums: List[int] = None
+    extend_seq_lens_cpu: List[int] = None
+    logprob_start_lens_cpu: List[int] = None
 
     # For multimodal
     pixel_values: List[torch.Tensor] = None
-    image_sizes: List[List[int]] = None
-    image_offsets: List[int] = None
+    image_sizes: List[List[List[int]]] = None
+    image_offsets: List[List[int]] = None
 
     # Trition attention backend
     triton_max_seq_len: int = 0
@@ -85,15 +92,8 @@ class InputMetadata:
     def init_multimuldal_info(self, batch: ScheduleBatch):
         reqs = batch.reqs
         self.pixel_values = [r.pixel_values for r in reqs]
-        self.image_sizes = [r.image_size for r in reqs]
-        self.image_offsets = [
-            (
-                (r.image_offset - len(r.prefix_indices))
-                if r.image_offset is not None
-                else 0
-            )
-            for r in reqs
-        ]
+        self.image_sizes = [r.image_sizes for r in reqs]
+        self.image_offsets = [r.image_offsets for r in reqs]
 
     def compute_positions(self, batch: ScheduleBatch):
         position_ids_offsets = batch.position_ids_offsets
@@ -109,8 +109,8 @@ class InputMetadata:
                 self.positions = torch.tensor(
                     np.concatenate(
                         [
-                            np.arange(len(req.prefix_indices), len(req.fill_ids))
-                            for req in batch.reqs
+                            np.arange(batch.prefix_lens_cpu[i], len(req.fill_ids))
+                            for i, req in enumerate(batch.reqs)
                         ],
                         axis=0,
                     ),
@@ -123,7 +123,7 @@ class InputMetadata:
                     np.concatenate(
                         [
                             np.arange(
-                                len(req.prefix_indices) + position_ids_offsets_cpu[i],
+                                batch.prefix_lens_cpu[i] + position_ids_offsets_cpu[i],
                                 len(req.fill_ids) + position_ids_offsets_cpu[i],
                             )
                             for i, req in enumerate(batch.reqs)
@@ -139,14 +139,30 @@ class InputMetadata:
     def compute_extend_infos(self, batch: ScheduleBatch):
         if self.forward_mode == ForwardMode.DECODE:
             self.extend_seq_lens = self.extend_start_loc = self.extend_no_prefix = None
+            self.extend_seq_lens_cpu = self.logprob_start_lens_cpu = None
         else:
             extend_lens_cpu = [
-                len(r.fill_ids) - len(r.prefix_indices) for r in batch.reqs
+                len(r.fill_ids) - batch.prefix_lens_cpu[i]
+                for i, r in enumerate(batch.reqs)
             ]
             self.extend_seq_lens = torch.tensor(extend_lens_cpu, device="cuda")
+            self.extend_prefix_lens = torch.tensor(batch.prefix_lens_cpu, device="cuda")
             self.extend_start_loc = torch.zeros_like(self.seq_lens)
             self.extend_start_loc[1:] = torch.cumsum(self.extend_seq_lens[:-1], dim=0)
-            self.extend_no_prefix = all(len(r.prefix_indices) == 0 for r in batch.reqs)
+            self.extend_no_prefix = all(l == 0 for l in batch.prefix_lens_cpu)
+
+            self.extend_seq_lens_cpu = extend_lens_cpu
+            self.logprob_start_lens_cpu = [
+                (
+                    min(
+                        req.logprob_start_len - batch.prefix_lens_cpu[i],
+                        extend_lens_cpu[i] - 1,
+                    )
+                    if req.logprob_start_len >= batch.prefix_lens_cpu[i]
+                    else extend_lens_cpu[i] - 1  # Fake extend, actually decode
+                )
+                for i, req in enumerate(batch.reqs)
+            ]
 
     @classmethod
     def from_schedule_batch(
@@ -157,6 +173,7 @@ class InputMetadata:
     ):
         ret = cls(
             forward_mode=forward_mode,
+            sampling_info=batch.sampling_info,
             batch_size=batch.batch_size(),
             req_pool_indices=batch.req_pool_indices,
             seq_lens=batch.seq_lens,
@@ -166,6 +183,8 @@ class InputMetadata:
             return_logprob=batch.return_logprob,
             top_logprobs_nums=batch.top_logprobs_nums,
         )
+
+        ret.sampling_info.prepare_penalties()
 
         ret.compute_positions(batch)
 
@@ -180,14 +199,8 @@ class InputMetadata:
         if forward_mode != ForwardMode.DECODE:
             ret.init_multimuldal_info(batch)
 
-        prefix_lens = None
-        if forward_mode != ForwardMode.DECODE:
-            prefix_lens = torch.tensor(
-                [len(r.prefix_indices) for r in batch.reqs], device="cuda"
-            )
-
         if model_runner.server_args.disable_flashinfer:
-            ret.init_triton_args(batch, prefix_lens)
+            ret.init_triton_args(batch)
 
         flashinfer_use_ragged = False
         if not model_runner.server_args.disable_flashinfer:
@@ -198,30 +211,35 @@ class InputMetadata:
             ):
                 flashinfer_use_ragged = True
             ret.init_flashinfer_handlers(
-                model_runner, prefix_lens, flashinfer_use_ragged
+                model_runner, batch.prefix_lens_cpu, flashinfer_use_ragged
             )
 
         return ret
 
-    def init_triton_args(self, batch: ScheduleBatch, prefix_lens):
+    def init_triton_args(self, batch: ScheduleBatch):
         """Init auxiliary variables for triton attention backend."""
         self.triton_max_seq_len = int(torch.max(self.seq_lens))
-        self.triton_prefix_lens = prefix_lens
         self.triton_start_loc = torch.zeros_like(self.seq_lens, dtype=torch.int32)
         self.triton_start_loc[1:] = torch.cumsum(self.seq_lens[:-1], dim=0)
 
         if self.forward_mode == ForwardMode.DECODE:
             self.triton_max_extend_len = None
         else:
-            extend_seq_lens = self.seq_lens - prefix_lens
+            self.triton_prefix_lens = torch.tensor(batch.prefix_lens_cpu, device="cuda")
+            extend_seq_lens = self.seq_lens - self.triton_prefix_lens
             self.triton_max_extend_len = int(torch.max(extend_seq_lens))
 
     def init_flashinfer_handlers(
         self,
         model_runner,
-        prefix_lens,
+        prefix_lens_cpu,
         flashinfer_use_ragged,
     ):
+        if self.forward_mode == ForwardMode.DECODE:
+            prefix_lens = None
+        else:
+            prefix_lens = self.extend_prefix_lens
+
         update_flashinfer_indices(
             self.forward_mode,
             model_runner,
@@ -294,6 +312,8 @@ def update_flashinfer_indices(
                 num_kv_heads,
                 head_dim,
                 1,
+                data_type=model_runner.kv_cache_dtype,
+                q_data_type=model_runner.dtype,
             )
         else:
             # extend part
@@ -372,6 +392,8 @@ def update_flashinfer_indices(
                     num_kv_heads,
                     head_dim,
                     1,
+                    data_type=model_runner.kv_cache_dtype,
+                    q_data_type=model_runner.dtype,
                 )
             else:
                 # extend part
